@@ -38,8 +38,25 @@ ${LANDING_MARKER}
       --border: #30363d;
       --text: #c9d1d9;
       --heading: #f0f6fc;
-      --accent: #2f81f7;
-      --accent-hover: #58a6ff;
+      --muted: #8b949e;
+      --input-bg: #0d1117;
+      --btn-secondary-bg: #21262d;
+      --btn-secondary-hover: #30363d;
+      --shadow: rgba(0,0,0,0.4);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f6f8fa;
+        --card-bg: #ffffff;
+        --border: #d0d7de;
+        --text: #24292f;
+        --heading: #1f2328;
+        --muted: #57606a;
+        --input-bg: #f6f8fa;
+        --btn-secondary-bg: #f6f8fa;
+        --btn-secondary-hover: #eaeef2;
+        --shadow: rgba(140,149,159,0.3);
+      }
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -60,7 +77,7 @@ ${LANDING_MARKER}
       padding: 2.5rem;
       max-width: 520px;
       width: 100%;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      box-shadow: 0 8px 24px var(--shadow);
     }
     h1 {
       color: var(--heading);
@@ -111,16 +128,16 @@ ${LANDING_MARKER}
       background: #2ea043;
     }
     .btn-secondary {
-      background: #21262d;
+      background: var(--btn-secondary-bg);
       color: var(--heading);
       border: 1px solid var(--border);
     }
     .btn-secondary:hover {
-      background: #30363d;
+      background: var(--btn-secondary-hover);
     }
     .url-box {
       margin-top: 1.5rem;
-      background: #0d1117;
+      background: var(--input-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 0.75rem;
@@ -132,7 +149,7 @@ ${LANDING_MARKER}
     .footer {
       margin-top: 2rem;
       font-size: 0.8rem;
-      color: #8b949e;
+      color: var(--muted);
       text-align: center;
     }
   </style>

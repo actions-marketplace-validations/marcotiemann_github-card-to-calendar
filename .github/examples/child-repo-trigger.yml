@@ -16,5 +16,5 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.CALENDAR_DISPATCH_TOKEN }}
-          repository: 'your-username/github-card-to-calendar' # Replace with your central calendar repo
+          repository: 'your-username/your-calendar-repo' # The repo that runs the sync workflow
           event-type: 'calendar-update'

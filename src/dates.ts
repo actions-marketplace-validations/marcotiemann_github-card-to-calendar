@@ -3,9 +3,26 @@
  */
 
 export interface ParsedDates {
-  startDate?: Date;
-  dueDate?: Date;
+  startDate: Date;
+  dueDate: Date;
   isAllDay: boolean;
+}
+
+/**
+ * Completes a one-sided range (a lone start or due date becomes a single-day range) and
+ * swaps reversed dates. Returns null when neither date is present.
+ */
+export function normalizeDateRange(
+  start: Date | null | undefined,
+  due: Date | null | undefined
+): { startDate: Date; dueDate: Date } | null {
+  if (!start && !due) return null;
+  let startDate = new Date((start ?? due)!.getTime());
+  let dueDate = new Date((due ?? start)!.getTime());
+  if (startDate.getTime() > dueDate.getTime()) {
+    [startDate, dueDate] = [dueDate, startDate];
+  }
+  return { startDate, dueDate };
 }
 
 /**
@@ -14,7 +31,7 @@ export interface ParsedDates {
 export function parseDateString(dateStr: string): Date | null {
   if (!dateStr) return null;
   const trimmed = dateStr.trim();
-  
+
   // Format: YYYY-MM-DD (extracts leading date even from ISO strings like YYYY-MM-DDT07:00:00Z)
   const datePart = trimmed.split('T')[0];
   const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
@@ -78,33 +95,8 @@ export function extractIssueDates(
     }
   }
 
-  if (!dueDate && !startDate) {
-    return null;
-  }
-
-  // If only start date is provided, use it as due date too (single day event)
-  if (startDate && !dueDate) {
-    dueDate = new Date(startDate.getTime());
-  }
-
-  // If only due date is provided, start date is the due date
-  if (dueDate && !startDate) {
-    startDate = new Date(dueDate.getTime());
-  }
-
-  // Ensure start <= due
-  if (startDate && dueDate && startDate.getTime() > dueDate.getTime()) {
-    // Swap if reversed
-    const temp = startDate;
-    startDate = dueDate;
-    dueDate = temp;
-  }
-
-  return {
-    startDate: startDate!,
-    dueDate: dueDate!,
-    isAllDay: true,
-  };
+  const range = normalizeDateRange(startDate, dueDate);
+  return range && { ...range, isAllDay: true };
 }
 
 /**

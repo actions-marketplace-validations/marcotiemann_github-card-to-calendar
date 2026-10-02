@@ -8,6 +8,7 @@ import { generateIcs } from './ical.js';
 import { mergeCards } from './merge.js';
 import { parseProjectRefs, uniqueProjectRefs } from './project-refs.js';
 import { LANDING_MARKER, renderLandingPage } from './landing.js';
+import { DEFAULTS } from './defaults.js';
 
 function parseListInput(input: string): string[] {
   if (!input) return [];
@@ -20,7 +21,7 @@ function parseListInput(input: string): string[] {
 function parseRegexInput(input: string, defaultPattern: string, flags = 'i'): RegExp {
   try {
     return new RegExp(input || defaultPattern, flags);
-  } catch (err) {
+  } catch {
     core.warning(`Invalid regex "${input}", falling back to default: ${defaultPattern}`);
     return new RegExp(defaultPattern, flags);
   }
@@ -30,7 +31,7 @@ async function run(): Promise<void> {
   try {
     const token = core.getInput('github-token', { required: true });
     const repositories = parseListInput(core.getInput('repositories'));
-    const projectOwnerTypeRaw = core.getInput('project-owner-type')?.toLowerCase();
+    const projectOwnerTypeRaw = core.getInput('project-owner-type').toLowerCase();
     const projectOwnerType =
       projectOwnerTypeRaw === 'organization' || projectOwnerTypeRaw === 'user'
         ? (projectOwnerTypeRaw as 'organization' | 'user')
@@ -49,34 +50,29 @@ async function run(): Promise<void> {
     const includeAssignees = parseListInput(core.getInput('include-assignees'));
 
     const dateFieldNames = parseListInput(
-      core.getInput('date-field-names') || 'Due Date, Due, Target Date, Date, End Date'
+      core.getInput('date-field-names') || DEFAULTS.dateFieldNames
     );
     const startDateFieldNames = parseListInput(
-      core.getInput('start-date-field-names') || 'Start Date, Start'
+      core.getInput('start-date-field-names') || DEFAULTS.startDateFieldNames
     );
-
-    const defaultDueRegex = '(?:\\*{1,2}|_)?(?:due|due date|deadline|target date)(?:\\*{1,2}|_)?[:\\s]+\\s*(\\d{4}-\\d{2}-\\d{2})';
-    const defaultStartRegex = '(?:\\*{1,2}|_)?(?:start|start date)(?:\\*{1,2}|_)?[:\\s]+\\s*(\\d{4}-\\d{2}-\\d{2})';
 
     const issueBodyDueRegex = parseRegexInput(
       core.getInput('issue-body-due-regex'),
-      defaultDueRegex
+      DEFAULTS.issueBodyDueRegex
     );
     const issueBodyStartRegex = parseRegexInput(
       core.getInput('issue-body-start-regex'),
-      defaultStartRegex
+      DEFAULTS.issueBodyStartRegex
     );
 
-    const outputFile = core.getInput('output-file') || 'calendar.ics';
-    const calendarName = core.getInput('calendar-name') || 'GitHub Issues & Projects Calendar';
-    const calendarDescription =
-      core.getInput('calendar-description') ||
-      'Calendar feed synchronized from GitHub Issues and Project cards';
+    const outputFile = core.getInput('output-file') || DEFAULTS.outputFile;
+    const calendarName = core.getInput('calendar-name') || DEFAULTS.calendarName;
+    const calendarDescription = core.getInput('calendar-description') || DEFAULTS.calendarDescription;
     const includeClosed = core.getInput('include-closed').trim().toLowerCase() === 'true';
     const includeDescription = core.getInput('include-description').trim().toLowerCase() !== 'false';
     const failOnError = core.getInput('fail-on-error').trim().toLowerCase() === 'true';
     const closedStatusValues = parseListInput(
-      core.getInput('closed-status-values') || 'Done, Closed, Completed, Finished'
+      core.getInput('closed-status-values') || DEFAULTS.closedStatusValues
     ).map((v) => v.toLowerCase());
 
     const config: ActionConfig = {
@@ -124,7 +120,6 @@ async function run(): Promise<void> {
     const projectCards = await fetchProjectsV2Items(config);
     core.info(`Fetched ${projectCards.length} scheduled item(s) from Projects v2.`);
 
-    // 3. De-duplicate:
     // 3. De-duplicate issues that appear both in the repo scan and in a project board
     const uniqueCards = mergeCards([...issueCards, ...projectCards]);
     core.info(`Total unique scheduled calendar events: ${uniqueCards.length}`);

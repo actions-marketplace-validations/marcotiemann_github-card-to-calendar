@@ -20223,7 +20223,7 @@ var require_dist_node2 = __commonJS({
     var import_universal_user_agent = require_dist_node();
     var VERSION = "9.0.6";
     var userAgent = `octokit-endpoint.js/${VERSION} ${(0, import_universal_user_agent.getUserAgent)()}`;
-    var DEFAULTS = {
+    var DEFAULTS2 = {
       method: "GET",
       baseUrl: "https://api.github.com",
       headers: {
@@ -20527,16 +20527,16 @@ var require_dist_node2 = __commonJS({
       return parse(merge(defaults, route, options));
     }
     function withDefaults(oldDefaults, newDefaults) {
-      const DEFAULTS2 = merge(oldDefaults, newDefaults);
-      const endpoint2 = endpointWithDefaults.bind(null, DEFAULTS2);
+      const DEFAULTS22 = merge(oldDefaults, newDefaults);
+      const endpoint2 = endpointWithDefaults.bind(null, DEFAULTS22);
       return Object.assign(endpoint2, {
-        DEFAULTS: DEFAULTS2,
-        defaults: withDefaults.bind(null, DEFAULTS2),
-        merge: merge.bind(null, DEFAULTS2),
+        DEFAULTS: DEFAULTS22,
+        defaults: withDefaults.bind(null, DEFAULTS22),
+        merge: merge.bind(null, DEFAULTS22),
         parse
       });
     }
-    var endpoint = withDefaults(null, DEFAULTS);
+    var endpoint = withDefaults(null, DEFAULTS2);
   }
 });
 
@@ -23970,6 +23970,16 @@ var core = __toESM(require_core());
 var import_github = __toESM(require_github());
 
 // src/dates.ts
+function normalizeDateRange(start, due) {
+  if (!start && !due)
+    return null;
+  let startDate = new Date((start ?? due).getTime());
+  let dueDate = new Date((due ?? start).getTime());
+  if (startDate.getTime() > dueDate.getTime()) {
+    [startDate, dueDate] = [dueDate, startDate];
+  }
+  return { startDate, dueDate };
+}
 function parseDateString(dateStr) {
   if (!dateStr)
     return null;
@@ -24020,25 +24030,8 @@ function extractIssueDates(body, milestoneDueOn, labels, bodyDueRegex, bodyStart
         startDate = parsed;
     }
   }
-  if (!dueDate && !startDate) {
-    return null;
-  }
-  if (startDate && !dueDate) {
-    dueDate = new Date(startDate.getTime());
-  }
-  if (dueDate && !startDate) {
-    startDate = new Date(dueDate.getTime());
-  }
-  if (startDate && dueDate && startDate.getTime() > dueDate.getTime()) {
-    const temp = startDate;
-    startDate = dueDate;
-    dueDate = temp;
-  }
-  return {
-    startDate,
-    dueDate,
-    isAllDay: true
-  };
+  const range = normalizeDateRange(startDate, dueDate);
+  return range && { ...range, isAllDay: true };
 }
 function calculateExclusiveEndDate(date) {
   const nextDay = new Date(date.getTime());
@@ -24095,11 +24088,13 @@ async function fetchIssuesFromRepositories(config) {
     core.info(`Fetching issues from ${owner}/${repo}...`);
     try {
       const stateFilter = config.includeClosed ? "all" : "open";
+      const assigneeParam = config.includeAssignees.length === 1 ? { assignee: config.includeAssignees[0].replace(/^@/, "") } : {};
       const iterator = octokit.paginate.iterator(octokit.rest.issues.listForRepo, {
         owner,
         repo,
         state: stateFilter,
-        per_page: 100
+        per_page: 100,
+        ...assigneeParam
       });
       for await (const response of iterator) {
         for (const issue of response.data) {
@@ -24121,7 +24116,7 @@ async function fetchIssuesFromRepositories(config) {
             config.issueBodyDueRegex,
             config.issueBodyStartRegex
           );
-          if (!dates || !dates.startDate || !dates.dueDate) {
+          if (!dates) {
             continue;
           }
           const assignees = (issue.assignees || []).map((a) => `@${a.login}`).join(", ");
@@ -24175,6 +24170,59 @@ ${cleanBody}`;
 // src/projects.ts
 var core2 = __toESM(require_core());
 var import_github2 = __toESM(require_github());
+
+// src/retry.ts
+var TRANSIENT_CODES = /* @__PURE__ */ new Set(["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"]);
+function isTransientError(err) {
+  const e = err;
+  if (!e || typeof e !== "object")
+    return false;
+  if (e.status !== void 0 && (e.status === 429 || e.status >= 500))
+    return true;
+  if (e.status === 403 && /rate limit|abuse/i.test(e.message ?? ""))
+    return true;
+  if (e.errors?.some((x) => x.type === "RATE_LIMITED"))
+    return true;
+  return e.code !== void 0 && TRANSIENT_CODES.has(e.code);
+}
+async function withRetry(fn, options = {}) {
+  const { attempts = 3, delayMs = 1e3, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = options;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= attempts || !isTransientError(err))
+        throw err;
+      await sleep(delayMs * attempt);
+    }
+  }
+}
+
+// src/projects.ts
+var ISSUE_LIKE_FIELDS = `
+        title
+        url
+        number
+        state
+        body
+        repository {
+          nameWithOwner
+        }
+        milestone {
+          title
+          dueOn
+        }
+        labels(first: 100) {
+          nodes {
+            name
+          }
+        }
+        assignees(first: 20) {
+          nodes {
+            login
+          }
+        }
+`;
 var ITEM_FIELDS = `
   pageInfo {
     hasNextPage
@@ -24185,6 +24233,9 @@ var ITEM_FIELDS = `
     type
     updatedAt
     fieldValues(first: 100) {
+      pageInfo {
+        hasNextPage
+      }
       nodes {
         ... on ProjectV2ItemFieldDateValue {
           date
@@ -24219,54 +24270,8 @@ var ITEM_FIELDS = `
     }
     content {
       __typename
-      ... on Issue {
-        title
-        url
-        number
-        state
-        body
-        repository {
-          nameWithOwner
-        }
-        milestone {
-          title
-          dueOn
-        }
-        labels(first: 100) {
-          nodes {
-            name
-          }
-        }
-        assignees(first: 20) {
-          nodes {
-            login
-          }
-        }
-      }
-      ... on PullRequest {
-        title
-        url
-        number
-        state
-        body
-        repository {
-          nameWithOwner
-        }
-        milestone {
-          title
-          dueOn
-        }
-        labels(first: 100) {
-          nodes {
-            name
-          }
-        }
-        assignees(first: 20) {
-          nodes {
-            login
-          }
-        }
-      }
+      ... on Issue {${ISSUE_LIKE_FIELDS}}
+      ... on PullRequest {${ISSUE_LIKE_FIELDS}}
       ... on DraftIssue {
         title
         body
@@ -24321,11 +24326,9 @@ async function fetchProject(config, ref) {
   let initialResponse = null;
   if (!ref.ownerType) {
     try {
-      const probeResponse = await octokit.graphql(ORG_QUERY, {
-        owner,
-        number: projectNumber,
-        cursor: null
-      });
+      const probeResponse = await withRetry(
+        () => octokit.graphql(ORG_QUERY, { owner, number: projectNumber, cursor: null })
+      );
       if (probeResponse.organization?.projectV2) {
         isOrg = true;
         queryToUse = ORG_QUERY;
@@ -24342,11 +24345,9 @@ async function fetchProject(config, ref) {
   }
   while (hasNextPage) {
     try {
-      const response = initialResponse || await octokit.graphql(queryToUse, {
-        owner,
-        number: projectNumber,
-        cursor
-      });
+      const response = initialResponse || await withRetry(
+        () => octokit.graphql(queryToUse, { owner, number: projectNumber, cursor })
+      );
       initialResponse = null;
       const project = isOrg ? response.organization?.projectV2 : response.user?.projectV2;
       if (!project) {
@@ -24363,6 +24364,9 @@ async function fetchProject(config, ref) {
         const url = content?.url || `${projectBaseUrl}?pane=issue&itemId=${item.id}`;
         const repo = content?.repository?.nameWithOwner;
         const labels = (content?.labels?.nodes || []).map((l) => l.name);
+        if (item.fieldValues?.pageInfo?.hasNextPage) {
+          core2.warning(`"${title}" has more than 100 field values; some date fields may be missed.`);
+        }
         let isClosed = false;
         if (content?.state && ["CLOSED", "MERGED"].includes(content.state.toUpperCase())) {
           isClosed = true;
@@ -24412,22 +24416,13 @@ async function fetchProject(config, ref) {
             config.issueBodyStartRegex
           );
           if (fallbackDates) {
-            startDate = fallbackDates.startDate || null;
-            dueDate = fallbackDates.dueDate || null;
+            startDate = fallbackDates.startDate;
+            dueDate = fallbackDates.dueDate;
           }
         }
-        if (!dueDate && !startDate) {
+        const range = normalizeDateRange(startDate, dueDate);
+        if (!range)
           continue;
-        }
-        if (startDate && !dueDate)
-          dueDate = new Date(startDate.getTime());
-        if (dueDate && !startDate)
-          startDate = new Date(dueDate.getTime());
-        if (startDate && dueDate && startDate.getTime() > dueDate.getTime()) {
-          const temp = startDate;
-          startDate = dueDate;
-          dueDate = temp;
-        }
         let description = `Card: ${url}
 Type: ${item.type}`;
         if (repo)
@@ -24447,8 +24442,8 @@ ${cleanBody}`;
           uid: cardUid(item.id, content),
           title,
           url,
-          startDate,
-          endDate: calculateExclusiveEndDate(dueDate),
+          startDate: range.startDate,
+          endDate: calculateExclusiveEndDate(range.dueDate),
           isAllDay: true,
           labels,
           repository: repo,
@@ -24613,8 +24608,25 @@ ${LANDING_MARKER}
       --border: #30363d;
       --text: #c9d1d9;
       --heading: #f0f6fc;
-      --accent: #2f81f7;
-      --accent-hover: #58a6ff;
+      --muted: #8b949e;
+      --input-bg: #0d1117;
+      --btn-secondary-bg: #21262d;
+      --btn-secondary-hover: #30363d;
+      --shadow: rgba(0,0,0,0.4);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f6f8fa;
+        --card-bg: #ffffff;
+        --border: #d0d7de;
+        --text: #24292f;
+        --heading: #1f2328;
+        --muted: #57606a;
+        --input-bg: #f6f8fa;
+        --btn-secondary-bg: #f6f8fa;
+        --btn-secondary-hover: #eaeef2;
+        --shadow: rgba(140,149,159,0.3);
+      }
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -24635,7 +24647,7 @@ ${LANDING_MARKER}
       padding: 2.5rem;
       max-width: 520px;
       width: 100%;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      box-shadow: 0 8px 24px var(--shadow);
     }
     h1 {
       color: var(--heading);
@@ -24686,16 +24698,16 @@ ${LANDING_MARKER}
       background: #2ea043;
     }
     .btn-secondary {
-      background: #21262d;
+      background: var(--btn-secondary-bg);
       color: var(--heading);
       border: 1px solid var(--border);
     }
     .btn-secondary:hover {
-      background: #30363d;
+      background: var(--btn-secondary-hover);
     }
     .url-box {
       margin-top: 1.5rem;
-      background: #0d1117;
+      background: var(--input-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 0.75rem;
@@ -24707,7 +24719,7 @@ ${LANDING_MARKER}
     .footer {
       margin-top: 2rem;
       font-size: 0.8rem;
-      color: #8b949e;
+      color: var(--muted);
       text-align: center;
     }
   </style>
@@ -24736,6 +24748,18 @@ ${LANDING_MARKER}
 </html>`;
 }
 
+// src/defaults.ts
+var DEFAULTS = {
+  dateFieldNames: "Due Date, Due, Target Date, Date, End Date",
+  startDateFieldNames: "Start Date, Start",
+  closedStatusValues: "Done, Closed, Completed, Finished",
+  outputFile: "calendar.ics",
+  calendarName: "GitHub Issues & Projects Calendar",
+  calendarDescription: "Calendar feed synchronized from GitHub Issues and Project cards",
+  issueBodyDueRegex: String.raw`(?:\*{1,2}|_)?(?:due|due date|deadline|target date)(?:\*{1,2}|_)?[:\s]+\s*(\d{4}-\d{2}-\d{2})`,
+  issueBodyStartRegex: String.raw`(?:\*{1,2}|_)?(?:start|start date)(?:\*{1,2}|_)?[:\s]+\s*(\d{4}-\d{2}-\d{2})`
+};
+
 // src/index.ts
 function parseListInput(input) {
   if (!input)
@@ -24745,7 +24769,7 @@ function parseListInput(input) {
 function parseRegexInput(input, defaultPattern, flags = "i") {
   try {
     return new RegExp(input || defaultPattern, flags);
-  } catch (err) {
+  } catch {
     core3.warning(`Invalid regex "${input}", falling back to default: ${defaultPattern}`);
     return new RegExp(defaultPattern, flags);
   }
@@ -24754,7 +24778,7 @@ async function run() {
   try {
     const token = core3.getInput("github-token", { required: true });
     const repositories = parseListInput(core3.getInput("repositories"));
-    const projectOwnerTypeRaw = core3.getInput("project-owner-type")?.toLowerCase();
+    const projectOwnerTypeRaw = core3.getInput("project-owner-type").toLowerCase();
     const projectOwnerType = projectOwnerTypeRaw === "organization" || projectOwnerTypeRaw === "user" ? projectOwnerTypeRaw : void 0;
     const projectRefs = parseProjectRefs(parseListInput(core3.getInput("projects")));
     const legacyOwner = core3.getInput("project-owner");
@@ -24767,29 +24791,27 @@ async function run() {
     const excludeLabels = parseListInput(core3.getInput("exclude-labels"));
     const includeAssignees = parseListInput(core3.getInput("include-assignees"));
     const dateFieldNames = parseListInput(
-      core3.getInput("date-field-names") || "Due Date, Due, Target Date, Date, End Date"
+      core3.getInput("date-field-names") || DEFAULTS.dateFieldNames
     );
     const startDateFieldNames = parseListInput(
-      core3.getInput("start-date-field-names") || "Start Date, Start"
+      core3.getInput("start-date-field-names") || DEFAULTS.startDateFieldNames
     );
-    const defaultDueRegex = "(?:\\*{1,2}|_)?(?:due|due date|deadline|target date)(?:\\*{1,2}|_)?[:\\s]+\\s*(\\d{4}-\\d{2}-\\d{2})";
-    const defaultStartRegex = "(?:\\*{1,2}|_)?(?:start|start date)(?:\\*{1,2}|_)?[:\\s]+\\s*(\\d{4}-\\d{2}-\\d{2})";
     const issueBodyDueRegex = parseRegexInput(
       core3.getInput("issue-body-due-regex"),
-      defaultDueRegex
+      DEFAULTS.issueBodyDueRegex
     );
     const issueBodyStartRegex = parseRegexInput(
       core3.getInput("issue-body-start-regex"),
-      defaultStartRegex
+      DEFAULTS.issueBodyStartRegex
     );
-    const outputFile = core3.getInput("output-file") || "calendar.ics";
-    const calendarName = core3.getInput("calendar-name") || "GitHub Issues & Projects Calendar";
-    const calendarDescription = core3.getInput("calendar-description") || "Calendar feed synchronized from GitHub Issues and Project cards";
+    const outputFile = core3.getInput("output-file") || DEFAULTS.outputFile;
+    const calendarName = core3.getInput("calendar-name") || DEFAULTS.calendarName;
+    const calendarDescription = core3.getInput("calendar-description") || DEFAULTS.calendarDescription;
     const includeClosed = core3.getInput("include-closed").trim().toLowerCase() === "true";
     const includeDescription = core3.getInput("include-description").trim().toLowerCase() !== "false";
     const failOnError = core3.getInput("fail-on-error").trim().toLowerCase() === "true";
     const closedStatusValues = parseListInput(
-      core3.getInput("closed-status-values") || "Done, Closed, Completed, Finished"
+      core3.getInput("closed-status-values") || DEFAULTS.closedStatusValues
     ).map((v) => v.toLowerCase());
     const config = {
       token,

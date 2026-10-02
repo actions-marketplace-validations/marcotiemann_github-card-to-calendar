@@ -6,7 +6,7 @@
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --outfile=dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "esbuild tests/verify.js --bundle --platform=node --target=node24 --outfile=dist/verify.cjs && node dist/verify.cjs"
+    "test": "esbuild tests/verify.js --bundle --platform=node --target=node24 --outfile=dist/verify.cjs && node --test dist/verify.cjs"
   },
   "keywords": [
     "github-action",

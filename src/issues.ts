@@ -3,6 +3,7 @@ import { getOctokit } from '@actions/github';
 import { CalendarCard, ActionConfig } from './types.js';
 import { extractIssueDates, calculateExclusiveEndDate } from './dates.js';
 import { passesLabelFilters, passesAssigneeFilter } from './filters.js';
+import { withBody } from './description.js';
 
 export async function fetchIssuesFromRepositories(
   config: ActionConfig
@@ -29,16 +30,23 @@ export async function fetchIssuesFromRepositories(
 
     try {
       const stateFilter = config.includeClosed ? 'all' : 'open';
+      // The API can filter by a single assignee; with several, filtering happens locally below.
+      const assigneeParam =
+        config.includeAssignees.length === 1
+          ? { assignee: config.includeAssignees[0].replace(/^@/, '') }
+          : {};
       const iterator = octokit.paginate.iterator(octokit.rest.issues.listForRepo, {
         owner,
         repo,
         state: stateFilter,
         per_page: 100,
+        ...assigneeParam,
       });
 
       for await (const response of iterator) {
         for (const issue of response.data) {
-          // GitHub issues endpoint also returns pull requests; filter them out
+          // The issues endpoint also returns pull requests; the repository scan is issues-only
+          // (pull request cards are still picked up through Projects v2).
           if (issue.pull_request) {
             continue;
           }
@@ -48,7 +56,6 @@ export async function fetchIssuesFromRepositories(
           ).filter(Boolean);
 
           if (!passesLabelFilters(labelNames, config.includeLabels, config.excludeLabels)) continue;
-
 
           const assigneeLogins = (issue.assignees || []).map((a) => a.login);
           if (!passesAssigneeFilter(assigneeLogins, config.includeAssignees)) continue;
@@ -62,7 +69,7 @@ export async function fetchIssuesFromRepositories(
             config.issueBodyStartRegex
           );
 
-          if (!dates || !dates.startDate || !dates.dueDate) {
+          if (!dates) {
             // No valid dates found; skip for calendar
             continue;
           }

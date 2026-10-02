@@ -5,8 +5,11 @@ import {
   parseDateString,
   extractIssueDates,
   calculateExclusiveEndDate,
+  normalizeDateRange,
 } from './dates.js';
 import { passesLabelFilters, passesAssigneeFilter } from './filters.js';
+import { withBody } from './description.js';
+import { withRetry } from './retry.js';
 
 interface ProjectV2FieldValueDate {
   date?: string;
@@ -38,6 +41,7 @@ interface ProjectV2ItemNode {
   type: string;
   updatedAt?: string;
   fieldValues?: {
+    pageInfo?: { hasNextPage: boolean };
     nodes?: Array<
       ProjectV2FieldValueDate & ProjectV2FieldValueSingleSelect & ProjectV2FieldValueIssueField
     >;
@@ -92,6 +96,32 @@ interface ProjectV2GraphQLResponse {
   };
 }
 
+/** Selection shared by issues and pull requests. */
+const ISSUE_LIKE_FIELDS = `
+        title
+        url
+        number
+        state
+        body
+        repository {
+          nameWithOwner
+        }
+        milestone {
+          title
+          dueOn
+        }
+        labels(first: 100) {
+          nodes {
+            name
+          }
+        }
+        assignees(first: 20) {
+          nodes {
+            login
+          }
+        }
+`;
+
 const ITEM_FIELDS = `
   pageInfo {
     hasNextPage
@@ -102,6 +132,9 @@ const ITEM_FIELDS = `
     type
     updatedAt
     fieldValues(first: 100) {
+      pageInfo {
+        hasNextPage
+      }
       nodes {
         ... on ProjectV2ItemFieldDateValue {
           date
@@ -136,54 +169,8 @@ const ITEM_FIELDS = `
     }
     content {
       __typename
-      ... on Issue {
-        title
-        url
-        number
-        state
-        body
-        repository {
-          nameWithOwner
-        }
-        milestone {
-          title
-          dueOn
-        }
-        labels(first: 100) {
-          nodes {
-            name
-          }
-        }
-        assignees(first: 20) {
-          nodes {
-            login
-          }
-        }
-      }
-      ... on PullRequest {
-        title
-        url
-        number
-        state
-        body
-        repository {
-          nameWithOwner
-        }
-        milestone {
-          title
-          dueOn
-        }
-        labels(first: 100) {
-          nodes {
-            name
-          }
-        }
-        assignees(first: 20) {
-          nodes {
-            login
-          }
-        }
-      }
+      ... on Issue {${ISSUE_LIKE_FIELDS}}
+      ... on PullRequest {${ISSUE_LIKE_FIELDS}}
       ... on DraftIssue {
         title
         body
@@ -250,11 +237,9 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
   let initialResponse: ProjectV2GraphQLResponse | null = null;
   if (!ref.ownerType) {
     try {
-      const probeResponse: ProjectV2GraphQLResponse = await octokit.graphql(ORG_QUERY, {
-        owner,
-        number: projectNumber,
-        cursor: null,
-      });
+      const probeResponse: ProjectV2GraphQLResponse = await withRetry(() =>
+        octokit.graphql(ORG_QUERY, { owner, number: projectNumber, cursor: null })
+      );
       if (probeResponse.organization?.projectV2) {
         isOrg = true;
         queryToUse = ORG_QUERY;
@@ -276,11 +261,9 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
     try {
       const response: ProjectV2GraphQLResponse =
         initialResponse ||
-        (await octokit.graphql(queryToUse, {
-          owner,
-          number: projectNumber,
-          cursor,
-        }));
+        (await withRetry(() =>
+          octokit.graphql<ProjectV2GraphQLResponse>(queryToUse, { owner, number: projectNumber, cursor })
+        ));
       initialResponse = null;
 
       const project = isOrg
@@ -305,19 +288,23 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
         const repo = content?.repository?.nameWithOwner;
         const labels: string[] = (content?.labels?.nodes || []).map((l) => l.name);
 
-        // Check closed status
+        if (item.fieldValues?.pageInfo?.hasNextPage) {
+          core.warning(`"${title}" has more than 100 field values; some date fields may be missed.`);
+        }
+
+        // Closed by issue/PR state...
         let isClosed = false;
         if (content?.state && ['CLOSED', 'MERGED'].includes(content.state.toUpperCase())) {
           isClosed = true;
         }
 
-        // Check single select status field for "Done" or "Closed"
         // Normalise issue-field date values to the same shape as project date fields
         const fieldNodes = (item.fieldValues?.nodes || []).map((fv) =>
           fv.issueFieldValue?.__typename === 'IssueFieldDateValue' && fv.issueFieldValue.value
             ? { ...fv, date: fv.issueFieldValue.value }
             : fv
         );
+        // ...or by a "Status" single-select value such as "Done"
         for (const fv of fieldNodes) {
           if (fv.field?.name?.toLowerCase() === 'status') {
             const statusVal = fv.name?.toLowerCase() || '';
@@ -334,7 +321,6 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
         if (!passesLabelFilters(labels, config.includeLabels, config.excludeLabels)) continue;
         const assigneeLogins = (content?.assignees?.nodes || []).map((a) => a.login);
         if (!passesAssigneeFilter(assigneeLogins, config.includeAssignees)) continue;
-
 
         // Extract dates: check custom date fields
         let startDate: Date | null = null;
@@ -367,24 +353,13 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
             config.issueBodyStartRegex
           );
           if (fallbackDates) {
-            startDate = fallbackDates.startDate || null;
-            dueDate = fallbackDates.dueDate || null;
+            startDate = fallbackDates.startDate;
+            dueDate = fallbackDates.dueDate;
           }
         }
 
-        if (!dueDate && !startDate) {
-          // No date found on card
-          continue;
-        }
-
-        if (startDate && !dueDate) dueDate = new Date(startDate.getTime());
-        if (dueDate && !startDate) startDate = new Date(dueDate.getTime());
-
-        if (startDate && dueDate && startDate.getTime() > dueDate.getTime()) {
-          const temp = startDate;
-          startDate = dueDate;
-          dueDate = temp;
-        }
+        const range = normalizeDateRange(startDate, dueDate);
+        if (!range) continue; // no date found on card
 
         let description = `Card: ${url}\nType: ${item.type}`;
         if (repo) description += `\nRepository: ${repo}`;
@@ -398,8 +373,8 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
           uid: cardUid(item.id, content),
           title,
           url,
-          startDate: startDate!,
-          endDate: calculateExclusiveEndDate(dueDate!),
+          startDate: range.startDate,
+          endDate: calculateExclusiveEndDate(range.dueDate),
           isAllDay: true,
           labels,
           repository: repo,

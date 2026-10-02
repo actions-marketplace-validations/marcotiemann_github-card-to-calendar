@@ -61,7 +61,7 @@ The built-in `GITHUB_TOKEN` **cannot** read organization or cross-repository pro
 
 ### Step 2: Add the workflow
 
-Create `.github/workflows/calendar-sync.yml` in your calendar repository:
+Create `.github/workflows/calendar-sync.yml` in your own calendar repository. This is a separate repository from the action itself: it holds only the workflow and the generated `gh-pages` branch, and can be private.
 
 ```yaml
 name: Sync GitHub Cards to Calendar
@@ -84,10 +84,10 @@ jobs:
   sync-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Generate calendar
-        uses: your-username/github-card-to-calendar@v1   # or './' inside this repo
+        uses: marcotiemann/github-card-to-calendar@v1
         with:
           github-token: ${{ secrets.CALENDAR_GITHUB_TOKEN }}
           projects: |
@@ -97,7 +97,7 @@ jobs:
           start-date-field-names: 'Start date'
           include-description: false
           calendar-name: 'My Team Roadmap'
-          output-file: 'public/calendar.ics'
+          output-file: 'public/<random-string>/calendar.ics'   # see "Privacy" below
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
@@ -109,7 +109,7 @@ jobs:
 ### Step 3: Subscribe
 
 1. Enable Pages: **Settings → Pages → Deploy from a branch → `gh-pages` / `(root)`**.
-2. Open `https://<user-or-org>.github.io/<repo>/` and click **Add to Google Calendar**, or copy the `calendar.ics` link into **Other calendars → From URL**.
+2. Open `https://<user-or-org>.github.io/<repo>/<random-string>/` and click **Add to Google Calendar**, or copy the `calendar.ics` link into **Other calendars → From URL**.
 
 > **Refresh timing:** the workflow regenerates the feed hourly, but Google Calendar decides when to re-fetch subscribed URLs (typically every 12–24 hours) and ignores the feed's refresh hints. Apple Calendar and Outlook honour them.
 
@@ -121,6 +121,7 @@ GitHub Pages sites are **public** (except on some Enterprise plans), so anyone w
 
 - set `include-description: false` (removes issue/card bodies from the feed),
 - keep sensitive details out of issue titles and labels,
+- **publish the feed under an unguessable path**: write it to `public/<random-string>/calendar.ics` (generate the string with `openssl rand -hex 16`) and subscribe to that URL. This only hides the link, it is not access control, but it keeps the feed from being found by guessing `<user>.github.io/<repo>/calendar.ics`,
 - or host the `.ics` somewhere access-controlled.
 
 ---
@@ -162,6 +163,8 @@ The built-in patterns accept `Due`, `Due date`, `Deadline`, `Target date` (and `
 
 For the repository scan, precedence is milestone < label < body (later wins).
 
+> **Pull requests:** the `repositories` scan lists issues only. Pull requests appear only when they are cards in a project listed in `projects`.
+
 > **Repository scan limitation:** the `repositories` scan cannot read issue fields. To use *Target date* / *Start date* issue fields, read them through a project (`projects`).
 
 ### Defaults to be aware of
@@ -172,7 +175,7 @@ For the repository scan, precedence is milestone < label < body (later wins).
 
 ## Real-Time Triggers (Optional)
 
-You can refresh the calendar sooner than the hourly schedule by dispatching `calendar-update` from tracked repositories. See `.github/examples/child-repo-trigger.yml`:
+You can refresh the calendar sooner than the hourly schedule by dispatching `calendar-update` from tracked repositories to **your calendar repository** (the one with the sync workflow, not this action's repository). See `.github/examples/child-repo-trigger.yml`:
 
 ```yaml
 on:
@@ -246,7 +249,13 @@ npm test            # bundles and runs tests/verify.js
 npm run build       # bundles src/index.ts to dist/index.js
 ```
 
-`dist/index.js` is what the action actually runs, so **commit it** after changing anything in `src/`. CI rebuilds it and fails if the committed copy is out of date.
+`dist/index.js` is what the action actually runs, so **commit it** after changing anything in `src/`. CI rebuilds it and fails if the committed copy is out of date. Tests use Node's built-in test runner (`node:test`).
+
+Input defaults live in `action.yml` and, as fallbacks for empty values, in `src/defaults.ts`; a test fails if the two drift apart.
+
+### Releasing
+
+Push a tag such as `v1.0.1`. The release workflow runs the tests, verifies `dist`, creates a GitHub release and moves the major tag (`v1`) to the new version.
 
 Layout:
 
@@ -256,7 +265,10 @@ Layout:
 | `src/projects.ts` | Projects v2 GraphQL (project fields and issue fields) |
 | `src/issues.ts` | Repository issue scan |
 | `src/dates.ts` | Date parsing/extraction and iCal date formatting |
-| `src/filters.ts` | Include/exclude label filter |
+| `src/filters.ts` | Include/exclude label and assignee filters |
+| `src/defaults.ts` | Fallback values for inputs left empty |
+| `src/description.ts` | Event description helpers |
+| `src/retry.ts` | Retries transient GitHub API failures |
 | `src/merge.ts` | De-duplication across sources |
 | `src/project-refs.ts` | Parses the `projects` input |
 | `src/ical.ts` | RFC 5545 generation and line folding |
