@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Major bumps of the bundled dependencies change runtime behaviour against the real
+    # GitHub API, which the tests don't cover, so upgrade those by hand.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
