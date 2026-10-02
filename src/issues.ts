@@ -88,7 +88,7 @@ export async function fetchIssuesFromRepositories(
 
           cards.push({
             uid: `gh-issue-${owner}-${repo}-${issue.number}@github.com`,
-            title: `[${repo}] ${issue.title} (#${issue.number})`,
+            title: `${issue.title} (#${issue.number})`,
             url: issue.html_url,
             startDate: dates.startDate,
             endDate: dates.isAllDay ? calculateExclusiveEndDate(dates.dueDate) : dates.dueDate,

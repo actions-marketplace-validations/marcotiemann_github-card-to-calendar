@@ -396,7 +396,7 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
 
         cards.push({
           uid: cardUid(item.id, content),
-          title: repo ? `[${repo.split('/')[1]}] ${title}` : title,
+          title,
           url,
           startDate: startDate!,
           endDate: calculateExclusiveEndDate(dueDate!),
