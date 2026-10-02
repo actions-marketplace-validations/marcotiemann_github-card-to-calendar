@@ -1,0 +1,20 @@
+# Drop this file into any tracked repository (e.g. .github/workflows/notify-calendar.yml)
+# whenever an issue is opened, edited, labeled, or closed, it will notify the central calendar repo.
+name: Notify Calendar of Card Changes
+
+on:
+  issues:
+    types: [opened, edited, deleted, labeled, unlabeled, closed, reopened, milestoned, demilestoned]
+  # Edits made only inside a Projects v2 board (e.g. changing a date field) do not trigger
+  # workflows in the repository; those changes are picked up by the next scheduled run.
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Calendar Update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CALENDAR_DISPATCH_TOKEN }}
+          repository: 'your-username/github-card-to-calendar' # Replace with your central calendar repo
+          event-type: 'calendar-update'

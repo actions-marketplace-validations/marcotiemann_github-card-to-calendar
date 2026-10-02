@@ -1,0 +1,97 @@
+name: 'GitHub Card to Calendar'
+description: 'Generates an iCal (.ics) calendar feed from GitHub Issues and Projects v2 cards across multiple repositories.'
+author: 'GitHub Card to Calendar'
+branding:
+  icon: 'calendar'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: 'GitHub token (PAT or GITHUB_TOKEN) with repo and project read access.'
+    required: true
+  repositories:
+    description: 'Comma or newline-separated list of repositories (e.g. "owner/repo1, owner/repo2").'
+    required: false
+    default: ''
+  projects:
+    description: 'Comma or newline-separated GitHub Projects v2 to include, as "owner/number" (e.g. "my-org/16, my-org/9"). The owner type is auto-detected. Issues in several projects become one event.'
+    required: false
+    default: ''
+  project-owner:
+    description: 'Organization or user login who owns the GitHub Project (Projects v2).'
+    required: false
+    default: ''
+  project-number:
+    description: 'Project number of the GitHub Project (e.g. 1).'
+    required: false
+    default: ''
+  project-owner-type:
+    description: 'Type of project owner: "organization" or "user" (optional, auto-detected if omitted).'
+    required: false
+    default: ''
+  include-labels:
+    description: 'Comma or newline-separated labels to filter in (e.g. "calendar, sprint").'
+    required: false
+    default: ''
+  include-assignees:
+    description: 'Comma or newline-separated GitHub logins. Only cards assigned to at least one of them are included (e.g. "octocat"). Empty = no assignee filter.'
+    required: false
+    default: ''
+  exclude-labels:
+    description: 'Comma or newline-separated labels to ignore (e.g. "wontfix, duplicate").'
+    required: false
+    default: ''
+  date-field-names:
+    description: 'Comma-separated custom Date field names in Projects v2 to treat as due/target dates.'
+    required: false
+    default: 'Due Date, Due, Target Date, Date, End Date'
+  start-date-field-names:
+    description: 'Comma-separated custom Date field names in Projects v2 to treat as start dates.'
+    required: false
+    default: 'Start Date, Start'
+  issue-body-due-regex:
+    description: 'Regex (case-insensitive, first capture group = YYYY-MM-DD) to extract due dates from issue bodies. Empty uses the built-in pattern, which also handles **bold** and _italic_ labels.'
+    required: false
+    default: ''
+  issue-body-start-regex:
+    description: 'Regex (case-insensitive, first capture group = YYYY-MM-DD) to extract start dates from issue bodies. Empty uses the built-in pattern.'
+    required: false
+    default: ''
+  output-file:
+    description: 'Path where the generated .ics file will be written.'
+    required: false
+    default: 'calendar.ics'
+  calendar-name:
+    description: 'Name of the calendar shown in Google Calendar.'
+    required: false
+    default: 'GitHub Issues & Projects Calendar'
+  calendar-description:
+    description: 'Description of the calendar.'
+    required: false
+    default: 'Calendar feed synchronized from GitHub Issues and Project cards'
+  include-closed:
+    description: 'Whether to include closed issues and completed cards (shown with a "✓" title prefix).'
+    required: false
+    default: 'false'
+  include-description:
+    description: 'Include issue/card body text in event descriptions. Set to "false" if tracked repos are private but the feed is published publicly.'
+    required: false
+    default: 'true'
+  fail-on-error:
+    description: 'Fail the run if a repository or project cannot be fetched, instead of logging and continuing with partial data.'
+    required: false
+    default: 'false'
+  closed-status-values:
+    description: 'Comma-separated Projects v2 "Status" values that mean a card is done.'
+    required: false
+    default: 'Done, Closed, Completed, Finished'
+
+outputs:
+  ics-path:
+    description: 'Absolute path to the generated .ics file.'
+  events-count:
+    description: 'Total number of calendar events generated.'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
