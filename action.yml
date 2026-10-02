@@ -1,6 +1,6 @@
 name: 'GitHub Card to Calendar'
 description: 'Generates an iCal (.ics) calendar feed from GitHub Issues and Projects v2 cards across multiple repositories.'
-author: 'GitHub Card to Calendar'
+author: 'marcotiemann'
 branding:
   icon: 'calendar'
   color: 'blue'
