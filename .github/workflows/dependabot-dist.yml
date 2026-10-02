@@ -2,8 +2,10 @@ name: Rebuild dist for Dependabot
 
 # Dependencies are bundled into dist/index.js, so a Dependabot bump leaves the committed
 # bundle stale and fails the "dist is up to date" check in CI. This rebuilds the bundle on
-# Dependabot's branch and re-runs CI on the new commit (a push made with GITHUB_TOKEN does
-# not trigger workflows by itself).
+# Dependabot's branch after type checking and testing it.
+#
+# A push made with GITHUB_TOKEN does not trigger CI, so the result is reported as a commit
+# status on the new head commit, which GitHub shows on the pull request.
 #
 # pull_request_target gives this job a write token, so it only runs for PRs opened by
 # Dependabot and installs without running dependency lifecycle scripts.
@@ -14,7 +16,7 @@ on:
 
 permissions:
   contents: write
-  actions: write
+  statuses: write
 
 jobs:
   rebuild:
@@ -32,20 +34,35 @@ jobs:
           cache: 'npm'
 
       - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
 
-      - name: Commit rebuilt dist and re-run CI
+      - name: Commit rebuilt dist
+        id: commit
         env:
-          GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          if git diff --quiet -- dist/index.js; then
-            echo "dist is already up to date"
-            exit 0
+          if ! git diff --quiet -- dist/index.js; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add dist/index.js
+            git commit -m "Rebuild dist"
+            git push origin "HEAD:$BRANCH"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist/index.js
-          git commit -m "Rebuild dist"
-          git push origin "HEAD:$BRANCH"
-          gh workflow run ci.yml --ref "$BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Report result on the pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha || github.event.pull_request.head.sha }}
+          RESULT: ${{ job.status }}
+        run: |
+          state=failure
+          [ "$RESULT" = "success" ] && state=success
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+            -f state="$state" \
+            -f context="Dependabot: tests and dist" \
+            -f description="Type check, tests and dist rebuild: $state" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
