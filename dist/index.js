@@ -23980,6 +23980,16 @@ function passesAssigneeFilter(assignees, includeAssignees) {
   return assignees.some((a) => wanted.has(a.replace(/^@/, "").toLowerCase()));
 }
 
+// src/description.ts
+var MAX_BODY_LENGTH = 1e3;
+function withBody(description, body, includeBody) {
+  if (!includeBody || !body) return description;
+  return `${description}
+
+---
+${body.replace(/\r\n/g, "\n").slice(0, MAX_BODY_LENGTH)}`;
+}
+
 // src/issues.ts
 async function fetchIssuesFromRepositories(config) {
   const cards = [];
@@ -24043,13 +24053,7 @@ Labels: ${labelNames.join(", ")}`;
             description += `
 Milestone: ${issue.milestone.title}`;
           }
-          if (config.includeDescription && issue.body) {
-            const cleanBody = issue.body.replace(/\r\n/g, "\n").slice(0, 1e3);
-            description += `
-
----
-${cleanBody}`;
-          }
+          description = withBody(description, issue.body, config.includeDescription);
           cards.push({
             uid: `gh-issue-${owner}-${repo}-${issue.number}@github.com`,
             title: `${issue.title} (#${issue.number})`,
@@ -24325,13 +24329,7 @@ Type: ${item.type}`;
 Repository: ${repo}`;
         if (labels.length > 0) description += `
 Labels: ${labels.join(", ")}`;
-        if (config.includeDescription && content?.body) {
-          const cleanBody = content.body.replace(/\r\n/g, "\n").slice(0, 1e3);
-          description += `
-
----
-${cleanBody}`;
-        }
+        description = withBody(description, content?.body, config.includeDescription);
         cards.push({
           uid: cardUid(item.id, content),
           title,

@@ -364,10 +364,7 @@ async function fetchProject(config: ActionConfig, ref: ProjectRef): Promise<Cale
         let description = `Card: ${url}\nType: ${item.type}`;
         if (repo) description += `\nRepository: ${repo}`;
         if (labels.length > 0) description += `\nLabels: ${labels.join(', ')}`;
-        if (config.includeDescription && content?.body) {
-          const cleanBody = content.body.replace(/\r\n/g, '\n').slice(0, 1000);
-          description += `\n\n---\n${cleanBody}`;
-        }
+        description = withBody(description, content?.body, config.includeDescription);
 
         cards.push({
           uid: cardUid(item.id, content),
