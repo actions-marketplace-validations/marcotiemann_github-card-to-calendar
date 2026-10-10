@@ -88,10 +88,7 @@ export async function fetchIssuesFromRepositories(
           if (issue.milestone) {
             description += `\nMilestone: ${issue.milestone.title}`;
           }
-          if (config.includeDescription && issue.body) {
-            const cleanBody = issue.body.replace(/\r\n/g, '\n').slice(0, 1000);
-            description += `\n\n---\n${cleanBody}`;
-          }
+          description = withBody(description, issue.body, config.includeDescription);
 
           cards.push({
             uid: `gh-issue-${owner}-${repo}-${issue.number}@github.com`,
