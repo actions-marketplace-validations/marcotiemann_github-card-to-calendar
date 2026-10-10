@@ -185,6 +185,12 @@ on:
 
 This only reacts to **issue** events. Changes made purely in a project (such as editing a date field) do not fire a workflow event in the tracked repository, so they are picked up by the next scheduled run.
 
+**Token:** the example reads a `CALENDAR_DISPATCH_TOKEN` secret, which you add to each tracked repository. Create a fine-grained personal access token limited to your **calendar repository** with the **Contents: Read and write** permission (GitHub requires it to send a `repository_dispatch` event), or a classic token with the `repo` scope.
+
+**Cost:** every dispatch is one extra run of your sync workflow on top of the hourly schedule. Runs are short (typically under a minute). With the `concurrency` block shown above, a burst of events queues behind the running job and GitHub keeps only one pending run, so rapid-fire edits collapse into at most one extra run. Public repositories run for free; private ones count against your monthly Actions minutes.
+
+**When it helps:** the dispatch only speeds up *your feed*. Google Calendar re-fetches subscribed URLs on its own schedule (typically every 12-24 hours), so if Google Calendar is your only client, the hourly schedule is already faster than Google picks it up and you can skip the dispatch. It is worth adding for Apple Calendar and Outlook, which honour the feed's refresh hints, or if you open the feed directly.
+
 ---
 
 ## Action Inputs
